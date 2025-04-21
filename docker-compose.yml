@@ -1,0 +1,74 @@
+version: '3.8' # Phiên bản docker-compose
+
+services:
+  # --- Dịch vụ MLflow Server ---
+  mlflow-server:
+    image: ghcr.io/mlflow/mlflow:v2.13.0 # Sử dụng image MLflow chính thức (thay version nếu cần)
+    container_name: mlflow_server_local
+    restart: always # Tự khởi động lại nếu bị lỗi
+    ports:
+      - "5000:5000" # Map cổng 5000 của container ra cổng 5000 của máy host
+    volumes:
+      # Tạo named volume để lưu trữ dữ liệu bền bỉ ngay cả khi container bị xóa/tạo lại
+      - mlflow_db_data:/mlflow_data/db
+      - mlflow_artifact_data:/mlflow_data/artifacts
+    command: mlflow server --backend-store-uri sqlite:////mlflow_data/db/mlflow.db --default-artifact-root /mlflow_data/artifacts --host 0.0.0.0 --port 5000
+    networks:
+      - mlflow_network
+
+  # --- Dịch vụ chạy huấn luyện (chạy 1 lần rồi thoát) ---
+  training:
+    build:
+      context: . # Build từ Dockerfile trong thư mục hiện tại
+      dockerfile: Dockerfile
+    container_name: mlflow_training_run
+    restart: 'no' # Không tự khởi động lại
+    command: python src/train.py # Override CMD của Dockerfile để chạy training
+    environment:
+      # ** Quan trọng: URI trỏ đến tên service 'mlflow-server' trong cùng network **
+      - MLFLOW_TRACKING_URI=http://mlflow-server:5000
+      # Có thể truyền các biến cấu hình khác nếu muốn override config.py
+      # - MLFLOW_EXPERIMENT_NAME=ExperimentTrongCompose
+      # - MLFLOW_MODEL_NAME=ModelTrongCompose
+      # - API_MODEL_STAGE=Staging # Stage mà train.py sẽ promote tới
+    volumes:
+      # Mount code để thấy thay đổi nếu sửa code src (tùy chọn khi dev)
+      - ./src:/app/src
+    depends_on:
+      - mlflow-server # Phải chờ mlflow-server khởi động (nhưng chưa chắc đã sẵn sàng hoàn toàn)
+    networks:
+      - mlflow_network
+
+  # --- Dịch vụ Flask App ---
+  flask-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mlflow_flask_app_local
+    restart: always
+    ports:
+      - "5001:8000" # Map cổng 8000 của container ra cổng 5001 của máy host
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow-server:5000 # Trỏ đến mlflow-server service
+      - PORT=8000 # Port mà waitress/gunicorn lắng nghe bên trong container
+      # Các biến khác trong config.py sẽ tự động được dùng (ví dụ: API_MODEL_STAGE)
+      # - API_MODEL_STAGE=Production # Có thể override stage ở đây nếu muốn
+    volumes:
+       # Mount code nếu muốn reload khi dev (cần cài waitress/gunicorn hỗ trợ reload)
+       # - ./src:/app/src
+    depends_on:
+      - mlflow-server # Chờ server chạy
+      # Có thể thêm depends_on: training nếu muốn app chỉ khởi động SAU KHI training xong
+      # Nhưng thường app sẽ tự xử lý việc model chưa có lúc đầu
+    networks:
+      - mlflow_network
+
+# --- Định nghĩa Volumes ---
+volumes:
+  mlflow_db_data: # Named volume cho SQLite DB
+  mlflow_artifact_data: # Named volume cho artifacts
+
+# --- Định nghĩa Network ---
+networks:
+  mlflow_network: # Mạng ảo để các container giao tiếp qua tên service
+    driver: bridge
