@@ -8,7 +8,7 @@ import numpy as np
 # import pandas as pd # Không cần pandas nữa nếu chỉ dùng numpy
 from waitress import serve
 
-import config  # Vẫn dùng config để lấy đường dẫn model
+import src.config  # Vẫn dùng config để lấy đường dẫn model
 
 app = Flask(__name__)
 
@@ -131,24 +131,6 @@ def predict():
         # print(traceback.format_exc()) # Bỏ comment nếu cần debug chi tiết
         # Trả về lỗi dạng JSON
         return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-
-
-@app.route("/health", methods=["GET"])
-def health_check():
-    # Endpoint health check vẫn trả về JSON
-    if model_loaded_status and model is not None and hasattr(model, "predict"):
-        return jsonify({"status": "OK", "model_loaded": True}), 200
-    else:
-        return (
-            jsonify(
-                {
-                    "status": "ERROR",
-                    "model_loaded": False,
-                    "message": "Model is not available.",
-                }
-            ),
-            503,
-        )
 
 
 if __name__ == "__main__":
