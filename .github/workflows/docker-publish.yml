@@ -1,0 +1,81 @@
+# Tên của workflow, hiển thị trên tab Actions của GitHub
+name: Docker Build and Push to Docker Hub
+
+# Các biến môi trường dùng chung cho cả workflow
+env:
+  # Thay thế bằng tên image Docker Hub của bạn
+  DOCKER_IMAGE: datpt/mse
+
+# Định nghĩa sự kiện kích hoạt workflow
+on:
+  push:
+    branches: [ main ] # Chỉ chạy khi có push lên nhánh main
+  # pull_request:
+  #   branches: [ main ] # Cũng có thể chạy khi có PR vào main (tùy chọn)
+  workflow_dispatch: # Cho phép chạy thủ công từ tab Actions
+
+# Định nghĩa các công việc (jobs) sẽ chạy
+jobs:
+  # Job 1: Build Docker image
+  build:
+    name: Build Docker Image # Tên hiển thị của job
+    runs-on: ubuntu-latest # Chạy trên máy ảo Ubuntu mới nhất do GitHub cung cấp
+
+    steps:
+      # Step 1.1: Checkout code từ repository về máy ảo runner
+      - name: Check out code
+        uses: actions/checkout@v4 # Sử dụng action chính thức để checkout
+
+      # Step 1.2: Thiết lập Docker Buildx (công cụ build image nâng cao)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 1.3: Build Docker image và lưu thành file .tar
+      # Sử dụng Dockerfile ở gốc dự án
+      # Gắn tag 'latest' và tag bằng mã commit SHA để dễ theo dõi
+      - name: Build and export Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Build context là thư mục gốc
+          push: false # Chỉ build, không push ở step này
+          tags: ${{ env.DOCKER_IMAGE }}:latest,${{ env.DOCKER_IMAGE }}:${{ github.sha }} # Gắn 2 tags
+          outputs: type=docker,dest=image.tar # Xuất image ra file image.tar
+
+      # Step 1.4: Upload file image.tar như một artifact
+      # Để job 'push' có thể tải về và sử dụng
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image # Tên của artifact
+          path: image.tar # Đường dẫn đến file cần upload
+
+  # Job 2: Push Docker image lên Docker Hub
+  push:
+    name: Push Docker Image to Docker Hub
+    runs-on: ubuntu-latest
+    needs: build # Đảm bảo job 'build' chạy xong và thành công thì job này mới chạy
+
+    steps:
+      # Step 2.1: Download artifact image.tar từ job 'build'
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image # Tên artifact phải khớp với lúc upload
+
+      # Step 2.2: Load Docker image từ file .tar
+      - name: Load Docker image
+        run: docker load --input image.tar
+
+      # Step 2.3: Đăng nhập vào Docker Hub
+      # Sử dụng action chính thức để đăng nhập an toàn
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }} # Sử dụng secret của GitHub
+          password: ${{ secrets.DOCKERHUB_TOKEN }}  # Sử dụng secret của GitHub
+
+      # Step 2.4: Push các tags của image lên Docker Hub
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.DOCKER_IMAGE }}:latest
+          docker push ${{ env.DOCKER_IMAGE }}:${{ github.sha }} # Push cả tag SHA
