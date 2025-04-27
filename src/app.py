@@ -8,7 +8,10 @@ import numpy as np
 # import pandas as pd # Không cần pandas nữa nếu chỉ dùng numpy
 from waitress import serve
 
-import src.config  # Vẫn dùng config để lấy đường dẫn model
+from src.config import (
+    LOCAL_MODEL_OUTPUT_DIR,
+    MODEL_TYPE,
+)  # Vẫn dùng config để lấy đường dẫn model
 
 app = Flask(__name__)
 
@@ -20,12 +23,12 @@ model_loaded_status = False  # Biến theo dõi trạng thái load model
 def load_local_model():
     """Tải model từ file .pkl cục bộ"""
     global model, model_loaded_status
-    output_dir = config.LOCAL_MODEL_OUTPUT_DIR
-    if not config.MODEL_TYPE:
+    output_dir = LOCAL_MODEL_OUTPUT_DIR
+    if not MODEL_TYPE:
         print("!!! LOI: MODEL_TYPE trong config chua duoc dat.")
         model_loaded_status = False
         return False
-    filename = f"best_{config.MODEL_TYPE.lower()}_model.pkl"
+    filename = f"best_{MODEL_TYPE.lower()}_model.pkl"
     model_path = os.path.join(output_dir, filename)
 
     print("\n--- Dang tai model truc tiep tu file cuc bo ---")

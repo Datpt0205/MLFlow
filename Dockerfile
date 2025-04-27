@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy source code
 COPY ./src /app/src
 
+COPY ./models ./models
+
 # Expose port for Flask app (sẽ được map bởi Docker Compose)
 EXPOSE 8000
 
