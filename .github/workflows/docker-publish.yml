@@ -4,8 +4,6 @@ name: Docker Build and Push to Docker Hub
 env:
   # Thay thế bằng tên image Docker Hub của bạn
   DOCKER_IMAGE: datpt/mse
-
-# Định nghĩa sự kiện kích hoạt workflow
 on:
   push:
     branches: [ main ] # Chỉ chạy khi có push lên nhánh main
