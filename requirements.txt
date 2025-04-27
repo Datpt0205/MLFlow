@@ -4,3 +4,4 @@ Flask
 waitress # WSGI server tốt cho Flask (thay uvicorn/gunicorn)
 numpy
 pandas
+xgboost

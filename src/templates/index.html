@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Predict API UI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Prediction API</h1>
+        <form id="predict-form" class="mt-4">
+            <div class="mb-3">
+                <label for="features" class="form-label">Enter 10 Features (comma-separated):</label>
+                <input type="text" class="form-control" id="features" placeholder="e.g., 1.5, 3.2, 5.6, -0.1, ...">
+            </div>
+            <button type="button" class="btn btn-primary me-2" onclick="makePrediction()">Submit</button>
+            <button type="button" class="btn btn-secondary" onclick="generateRandomFeatures()">Generate Random Features</button>
+        </form>
+        <div id="result" class="mt-4 alert" role="alert" style="min-height: 50px;">
+            </div>
+    </div>
+
+    <script>
+        const NUM_FEATURES = 10; // Số lượng feature model yêu cầu
+        const featureInput = document.getElementById('features');
+        const resultDiv = document.getElementById('result');
+
+        function generateRandomFeatures() {
+            const randomFeatures = [];
+            for (let i = 0; i < NUM_FEATURES; i++) {
+                // Tạo số ngẫu nhiên trong khoảng -5 đến 5, làm tròn 2 chữ số thập phân
+                const randomValue = (Math.random() * 10 - 5).toFixed(2);
+                randomFeatures.push(randomValue);
+            }
+            // Điền vào ô input, cách nhau bằng dấu phẩy
+            featureInput.value = randomFeatures.join(',');
+            // Xóa kết quả cũ nếu có
+            resultDiv.innerHTML = '';
+            resultDiv.className = 'mt-4 alert'; // Reset class
+        }
+
+        async function makePrediction() {
+            const featuresString = featureInput.value;
+            // Tách chuỗi bằng dấu phẩy, loại bỏ khoảng trắng thừa, chuyển sang số
+            const features = featuresString.split(',')
+                                        .map(s => s.trim()) // Loại bỏ khoảng trắng
+                                        .filter(s => s !== '') // Loại bỏ phần tử rỗng
+                                        .map(Number); // Chuyển sang số
+
+            // Kiểm tra xem có đúng 10 feature và tất cả là số hợp lệ không
+            if (features.length !== NUM_FEATURES || features.some(isNaN)) {
+                resultDiv.innerHTML = `Invalid input. Please enter exactly ${NUM_FEATURES} numeric values, separated by commas.`;
+                resultDiv.className = 'mt-4 alert alert-danger'; // Thêm class lỗi
+                return;
+            }
+
+            // Xóa thông báo cũ, chuẩn bị hiển thị kết quả mới
+            resultDiv.innerHTML = 'Predicting...';
+            resultDiv.className = 'mt-4 alert alert-info'; // Class thông tin
+
+            try {
+                // Gửi yêu cầu POST đến /predict
+                // **Quan trọng**: Đảm bảo backend Flask của bạn mong đợi input dạng { "features": [[f1, f2, ...]] } hoặc chỉ [f1, f2, ...]
+                // Đoạn code này gửi dạng { "features": [f1, f2, ...] } - bạn có thể cần sửa lại body nếu backend cần dạng khác
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    // Gửi dữ liệu dưới dạng một list các feature
+                    // Nếu backend của bạn (app.py) yêu cầu một list chứa list [[...]], hãy sửa thành:
+                    // body: JSON.stringify({ "features": [features] }),
+                    body: JSON.stringify(features), // Gửi trực tiếp list feature
+                });
+
+                // Kiểm tra xem response có phải JSON không trước khi parse
+                const contentType = response.headers.get("content-type");
+                let data;
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    data = await response.json();
+                } else {
+                    // Nếu không phải JSON, đọc text để xem lỗi server
+                    const text = await response.text();
+                    throw new Error(`Server returned non-JSON response: ${response.status} ${response.statusText}. Body: ${text}`);
+                }
+
+
+                if (response.ok) {
+                    // Giả sử backend trả về dạng { "predictions": [value] }
+                    const predictionValue = data.predictions && data.predictions.length > 0 ? data.predictions[0] : 'N/A';
+                    resultDiv.innerHTML = `Prediction: ${predictionValue}`;
+                    resultDiv.className = 'mt-4 alert alert-success'; // Class thành công
+                } else {
+                    // Hiển thị lỗi từ server nếu có
+                    resultDiv.innerHTML = `Error: ${data.error || 'Unknown server error'}`;
+                    resultDiv.className = 'mt-4 alert alert-danger'; // Class lỗi
+                }
+            } catch (error) {
+                 console.error("Prediction Error:", error); // Log lỗi ra console để debug
+                 resultDiv.innerHTML = `An error occurred: ${error.message}`;
+                 resultDiv.className = 'mt-4 alert alert-danger'; // Class lỗi
+            }
+        }
+    </script>
+</body>
+</html>

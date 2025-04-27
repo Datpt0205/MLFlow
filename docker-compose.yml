@@ -47,7 +47,7 @@ services:
     container_name: mlflow_flask_app_local
     restart: always
     ports:
-      - "5001:8000" # Map cổng 8000 của container ra cổng 5001 của máy host
+      - "5555:8000" # Map cổng 8000 của container ra cổng 5001 của máy host
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow-server:5000 # Trỏ đến mlflow-server service
       - PORT=8000 # Port mà waitress/gunicorn lắng nghe bên trong container

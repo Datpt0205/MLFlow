@@ -1,0 +1,182 @@
+name: MLflow CI/CD (Artifacts + Render Trigger)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # ---- Job 1: Test Code & Run Training & Upload Artifacts ----
+  test-train-upload:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9"]
+    # Output để job sau có thể dùng nếu cần (ví dụ: tên model nếu động)
+    outputs:
+       best_model_artifact_name: best-model-${{ github.run_id }}
+       mlruns_artifact_name: mlflow-runs-${{ github.run_id }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install flake8 black
+
+    - name: Lint with flake8
+      run: flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Check formatting with Black
+      run: black --check src/
+
+    - name: Run Training Script (Creates ./mlruns and ./best_model_artifact_output)
+      id: training_run
+      run: python src/train.py
+
+    - name: Check if Best Model Output Dir exists # Kiểm tra xem train.py có tạo ra output không
+      id: check_best_model_output
+      run: |
+        if [ -d "best_model_artifact_output" ]; then
+          echo "Thu muc best_model_artifact_output ton tai."
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "LOI: Khong tim thay thu muc best_model_artifact_output sau khi chay train.py!"
+          echo "exists=false" >> $GITHUB_OUTPUT
+          exit 1 # Làm fail job nếu không có model tốt nhất để deploy
+        fi
+
+    - name: Upload Best Model Artifact Directory
+      if: steps.check_best_model_output.outputs.exists == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: best-model-${{ github.run_id }} # Tên artifact chứa model tốt nhất
+        path: ./best_model_artifact_output # Upload thư mục này
+        retention-days: 5 # Giữ artifact trong 5 ngày
+
+    - name: Upload Full MLruns Directory (Optional, for debugging/review)
+      if: steps.check_best_model_output.outputs.exists == 'true' # Chỉ upload nếu có model tốt nhất
+      uses: actions/upload-artifact@v4
+      with:
+        name: mlflow-runs-${{ github.run_id }} # Tên artifact chứa mlruns
+        path: ./mlruns # Upload toàn bộ mlruns
+        retention-days: 5
+        if-no-files-found: warn # Cảnh báo nếu không có gì trong mlruns
+
+  # ---- Job 2: Build Docker Image with Best Model Artifact ----
+  build-docker-image:
+    needs: test-train-upload # Chạy sau job 1
+    runs-on: ubuntu-latest
+    if: needs.test-train-upload.result == 'success' # Chỉ chạy nếu job 1 thành công
+    permissions:
+      contents: read
+      packages: write # Quyền để push lên GHCR
+
+    outputs:
+       image_uri: ${{ steps.meta.outputs.tags }} # Xuất ra các tag đã tạo
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download Best Model Artifact # Tải artifact model tốt nhất về runner
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ needs.test-train-upload.outputs.best_model_artifact_name }}
+        path: ./temp_best_model_download # Tải vào thư mục tạm
+
+    - name: Prepare Model Directory for Docker Build # Chuẩn bị ./model_to_serve
+      id: prepare_model
+      run: |
+        # Kiểm tra xem thư mục tải về có tồn tại không
+        if [ -d "./temp_best_model_download" ]; then
+           echo "Tao thu muc ./model_to_serve"
+           mkdir -p ./model_to_serve
+           echo "Copy model artifacts vao ./model_to_serve"
+           # Copy nội dung từ thư mục tạm vào thư mục build context
+           cp -r ./temp_best_model_download/* ./model_to_serve/
+           # Kiểm tra lại
+           if [ -f "./model_to_serve/MLmodel" ]; then
+              echo "Model da duoc chuan bi trong ./model_to_serve."
+              echo "ready=true" >> $GITHUB_OUTPUT
+           else
+              echo "LOI: Khong tim thay file MLmodel trong ./model_to_serve sau khi copy!"
+              echo "ready=false" >> $GITHUB_OUTPUT
+              exit 1
+           fi
+        else
+           echo "LOI: Khong tim thay thu muc artifact da tai ve ./temp_best_model_download"
+           echo "ready=false" >> $GITHUB_OUTPUT
+           exit 1
+        fi
+
+    - name: Set up Docker Buildx
+      if: steps.prepare_model.outputs.ready == 'true'
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      if: steps.prepare_model.outputs.ready == 'true'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Define Image Metadata
+      if: steps.prepare_model.outputs.ready == 'true'
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=sha,prefix=sha-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image to GHCR
+      if: steps.prepare_model.outputs.ready == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: . # Dockerfile sẽ COPY từ ./model_to_serve đã chuẩn bị
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # ---- Job 3: Trigger Deploy trên Render ----
+  deploy-to-render:
+    needs: build-docker-image # Chạy sau khi build image thành công
+    runs-on: ubuntu-latest
+    if: needs.build-docker-image.result == 'success' 
+
+    steps:
+    - name: Trigger Render Deploy Hook
+      env:
+        RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }} 
+      run: |
+        if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+          echo "CANH BAO: Secret RENDER_DEPLOY_HOOK_URL chua duoc thiet lap. Bo qua buoc deploy."
+          exit 0
+        else
+          echo "Kich hoat Render deployment de keo image moi nhat tu GHCR..."
+          RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST -d '' "$RENDER_DEPLOY_HOOK_URL")
+          echo "Render Deploy Hook response code: $RESPONSE_CODE"
+          if [ "$RESPONSE_CODE" -ge 200 ] && [ "$RESPONSE_CODE" -lt 300 ]; then
+             echo "Render deployment da duoc kich hoat thanh cong."
+          else
+             echo "!!! Loi khi kich hoat Render deployment hook (HTTP Code: $RESPONSE_CODE)."
+             # exit 1 # Cân nhắc làm fail nếu trigger lỗi
+          fi
+        fi
