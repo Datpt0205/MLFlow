@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 import pandas as pd  # Import pandas nếu cần xem dữ liệu
 
-from src.config import (
+from config import (
     N_SAMPLES_ORIGINAL,
     N_FEATURES,
     N_CLASSES,

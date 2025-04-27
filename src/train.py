@@ -19,9 +19,9 @@ import traceback
 import time
 import joblib  # Import joblib để lưu model cục bộ
 
-from src.data_generator import get_data
-from src.utils import evaluate_model
-from src.config import (
+from data_generator import get_data
+from utils import evaluate_model
+from config import (
     MLFLOW_TRACKING_URI,
     MLFLOW_EXPERIMENT_NAME,
     MLFLOW_MODEL_NAME,
