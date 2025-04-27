@@ -1,7 +1,6 @@
 # Tên của workflow, hiển thị trên tab Actions của GitHub
 name: Docker Build and Push to Docker Hub
 
-# Các biến môi trường dùng chung cho cả workflow
 env:
   # Thay thế bằng tên image Docker Hub của bạn
   DOCKER_IMAGE: datpt/mse
