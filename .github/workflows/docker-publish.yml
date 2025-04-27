@@ -3,7 +3,7 @@ name: Docker Build and Push to Docker Hub
 
 env:
   # Thay thế bằng tên image Docker Hub của bạn
-  DOCKER_IMAGE: datpt/mse
+  DOCKER_IMAGE: phungdat020501/datpt_mse
 on:
   push:
     branches: [ main ] # Chỉ chạy khi có push lên nhánh main
