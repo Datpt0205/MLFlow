@@ -21,11 +21,7 @@ def load_local_model():
     """Tải model từ file .pkl cục bộ"""
     global model, model_loaded_status
     output_dir = config.LOCAL_MODEL_OUTPUT_DIR
-    if not config.MODEL_TYPE:
-        print("!!! LOI: MODEL_TYPE trong config chua duoc dat.")
-        model_loaded_status = False
-        return False
-    filename = f"best_{config.MODEL_TYPE.lower()}_model.pkl"
+    filename = f"{config.BEST_OVERALL_MODEL_FILENAME.lower()}"
     model_path = os.path.join(output_dir, filename)
 
     print("\n--- Dang tai model truc tiep tu file cuc bo ---")
